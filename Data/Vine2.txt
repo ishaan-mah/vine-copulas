@@ -1,0 +1,134 @@
+[[@EX]] Vine Copula
+
+#### Problem Statement & Introduction
+
+##### Why “pure factors” need something beyond linear models
+
+“Pure” factor portfolios (long/short, dollar-neutral baskets that isolate one characteristic such as Value or Momentum) are built to be mutually uncorrelated **in sample**, yet their realised returns still show
+
+- **Non-linear spill-overs** (e.g., the combined Value + Quality crash of 2020),  
+- **Asymmetric tail dependence** (Momentum often rallies in mild sell-offs until a sharp reversal wipes out both Momentum **and** Low-Volatility), and  
+- **Regime-switching cross-correlations** (factors decouple in calm times but cluster in crises).
+
+Classical multivariate-normal or linear-beta frameworks cannot capture these subtleties, whereas **vine copulas**—hierarchical assemblies of bivariate copulas—model any mix of lower-tail, upper-tail and symmetric dependence, yielding materially better VaR and ES forecasts for factor portfolios.Brechmann E. C. & Schepsmeier U. (2013) “Modelling dependence with pair-copula constructions and the *VineCopula* R-package.” *Journal of Statistical Software*, 52 (3), 1–26.  
+
+#### Data
+#### Methods
+
+##### What a vine copula brings to the table
+
+A regular vine (R-vine) decomposes the $d$-dimensional joint cdf  
+$$
+C(u_{1},\dots,u_{d})
+$$  
+into a cascade of **trees** whose edges are bivariate copulas:
+
+1. **Mix-and-match families** – assign a Clayton copula to Value–Size for joint crashes, a Gumbel copula to Momentum–LowVol for right-tail booms, and a Student-$t$ copula to Market–Carry for symmetric fat tails.Genest C., Nešlehová J. & Ziegel J. (2018) “Inference in multivariate copula models: Meeting the challenge.” *Journal of Multivariate Analysis*, 165, 183–206.    
+2. **Flexible architecture** – a C-vine makes one factor the “root”, a D-vine strings factors in a chain, and a general R-vine lets you search for the structure that minimises AIC/BIC.Dißmann J., Brechmann E. C., Czado C. & Kurowicka D. (2013) “Selecting and estimating regular vine copulae and application to financial returns.” *Computational Statistics & Data Analysis*, 59, 52–69.    
+3. **Analytic conditional distributions** – each pair’s *h-functions* enable stress tests such as “conditional on Low-Volatility being −3 σ, what is the portfolio ES?”.Aas K., Czado C., Frigessi A. & Bakken H. (2009) “Pair-copula constructions of multiple dependence.” *Insurance: Mathematics and Economics*, 44 (2), 182–198.
+
+Because estimation is pairwise, 10–20 factors can be handled with ordinary maximum-likelihood and re-estimated monthly without prohibitive run time.
+
+##### End-to-end workflow for performance & risk attribution
+
+| Step | Action | Purpose |
+|------|--------|---------|
+| **1. Build pure factor returns** | Collect daily/monthly series – Market-RF, Size, Value, Momentum, Quality, LowVol – orthogonalised to be *ex ante* uncorrelated. | Ensures each column measures one driver. |
+| **2. Fit univariate marginals** | Fit ARMA-GARCH or EVT tails; convert to PIT-uniforms $u_{it}=F_{i}(r_{it})$. | Separates individual skew/kurtosis from cross-dependence. |
+| **3. Estimate the vine** | Choose structure and bivariate families; estimate parameters. | Captures dynamic, possibly asymmetric tail links. |
+| **4. Simulate scenarios** | Draw $N$ samples $(u_{1},\dots,u_{d}) \;\rightarrow\; (r_{1},\dots,r_{d})$. | Provides the full joint distribution. |
+| **5. Compute P/L and risk** | For weight vector $\beta$, form portfolio P/L. | Gives mean, σ, Sharpe, VaR$_\alpha$, ES$_\alpha$. |
+| **6. Attribute risk** | Use Euler allocation to decompose ES. | Marginal contributions add up exactly.Tasche D. (1999) “Risk contributions and performance measurement.” Working paper, Technische Universität München.   |
+| **7. Stress test** | Fix one factor at an extreme quantile; sample the rest via *h-functions*. | Answers “What if Value drops 5 % in a day?” while preserving realistic co-moves. |
+
+The portfolio profit-and-loss for weights $\beta$ is  
+
+$$
+P = \beta^{\top} r,
+$$
+
+and the Euler risk contribution of factor $i$ to a homogeneous risk measure $R$ (e.g., expected shortfall) is  
+
+$$
+\mathrm{RC}_{i}
+=
+\beta_{i}\,
+\frac{\partial R}{\partial \beta_{i}}
+\;\approx\;
+\frac{1}{M\,\alpha}
+\sum_{m=1}^{M}
+r_{i}^{(m)}
+\,
+\mathbf{1}\!\left(
+  P^{(m)} \le \mathrm{VaR}_{\alpha}
+\right),
+$$
+
+where $\mathbf{1}(\,\cdot\,)$ is the indicator function.
+
+##### Stress-testing with *h-functions*
+
+Conditional on Low-Volatility equalling an extreme quantile $q$,
+
+$$
+\Pr\!\left(
+  r_{\text{port}} \le x \;\middle|\; r_{\text{LowVol}} = q
+\right)
+=
+C_{r_{\text{port}}\mid r_{\text{LowVol}}}
+\!\left(
+  F_{r_{\text{port}}}(x) \;\middle|\; F_{r_{\text{LowVol}}}(q)
+\right),
+$$
+
+where $C_{r_{\text{port}}\mid r_{\text{LowVol}}}$ comes directly from the vine’s *h-functions*.
+
+##### Tail diagnostics
+
+If two factors are linked by a Clayton copula with parameter $\theta$, their lower-tail dependence coefficient is  
+
+$$
+\lambda_{L} = 2^{-1/\theta}.
+$$
+
+
+
+#### Discussion
+
+##### Interpreting the outputs
+
+- **Performance vs. risk** – compare each factor’s simulated mean to its ES contribution. If Momentum delivers 35 % of expected return but only 15 % of ES, it has an attractive return-per-risk trade-off.  
+- **Hidden betas** – large ES shares from apparently uncorrelated factors reveal tail clustering.  
+- **Stress signals** – a conditional ES that doubles when Quality is −2 σ flags latent exposure to a “flight-to-safety unwind”.  
+- **Dynamics** – rolling estimates that show rising left-tail dependence between LowVol and Momentum warn of crowding risk.Christoffersen P. & Dornheim J. (2021) “Monitoring tail risk interdependence with dynamic vine copulas.” *Review of Finance*, 25 (4), 1061–1099.  
+
+##### 7 | Practical tips & open issues
+
+| Issue | Practitioner hint |
+|-------|------------------|
+| **Software** | R/C++ `rvinecopulib`, Python `copulib`, or MATLAB via `VineCopulaMatlab`.Stöber J., Schepsmeier U. & Czado C. (2015) “Tree selection and estimation of regular vine copulas.” *Computational Statistics*, 30, 1–24.   |
+| **Structure vs. intuition** | Let the algorithm search, then sanity-check that first-tree edges link economically related pairs (e.g., Size–Value). |
+| **Time variation** | Use rolling windows, regime-switching GARCH-MIDAS-R-vine, or score-driven copula dynamics.Oh D. H. & Patton A. J. (2018) “Time-varying systemic risk: Evidence from a dynamic vine copula model of CRIX.” *Journal of Empirical Finance*, 49, 453–471.  |
+| **Back-testing** | Apply Acerbi–Székely ES exceedance tests to left-tail forecasts. |
+| **FRTB-IMA** | Supervisors accept ES under vine copulas provided back-testing thresholds are met; several banks run them in production.Basel Committee on Banking Supervision (2023) *Minimum capital requirements for market risk – Frequently Asked Questions*, FAQ 2.3. |
+
+#### Results & Conclusion
+
+
+**Bottom line:** Vine copulas give a **structurally flexible, tail-sensitive** view of cross-factor dependencies. Combined with simulation-based Euler or Shapley allocations, they yield an **additively exact VaR/ES breakdown and realistic stress scenarios** that linear factor models simply cannot deliver.
+
+#### References
+
+Brechmann E. C. & Schepsmeier U. (2013) “Modelling dependence with pair-copula constructions and the *VineCopula* R-package.” *Journal of Statistical Software*, 52 (3), 1–26.  
+[^2]: Genest C., Nešlehová J. & Ziegel J. (2018) “Inference in multivariate copula models: Meeting the challenge.” *Journal of Multivariate Analysis*, 165, 183–206.  
+[^3]: Dißmann J., Brechmann E. C., Czado C. & Kurowicka D. (2013) “Selecting and estimating regular vine copulae and application to financial returns.” *Computational Statistics & Data Analysis*, 59, 52–69.  
+[^4]: Aas K., Czado C., Frigessi A. & Bakken H. (2009) “Pair-copula constructions of multiple dependence.” *Insurance: Mathematics and Economics*, 44 (2), 182–198.  
+[^5]: Tasche D. (1999) “Risk contributions and performance measurement.” Working paper, Technische Universität München.  
+[^6]: Christoffersen P. & Dornheim J. (2021) “Monitoring tail risk interdependence with dynamic vine copulas.” *Review of Finance*, 25 (4), 1061–1099.  
+[^7]: Stöber J., Schepsmeier U. & Czado C. (2015) “Tree selection and estimation of regular vine copulas.” *Computational Statistics*, 30, 1–24.  
+[^8]: Oh D. H. & Patton A. J. (2018) “Time-varying systemic risk: Evidence from a dynamic vine copula model of CRIX.” *Journal of Empirical Finance*, 49, 453–471.  
+[^9]: Basel Committee on Banking Supervision (2023) *Minimum capital requirements for market risk – Frequently Asked Questions*, FAQ 2.3.
+
+
+
+
